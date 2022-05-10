@@ -242,6 +242,16 @@ class Operation(object):
     def execute(self):
         self._ctx.dispatch_request(self)
 
+    def _format_items(self, items):
+        res = []
+        for item in items:
+            product = Product(item)
+            # return only products without replacement
+            if product.replacement is None:
+                res.append(product)
+
+        return res
+
 
 class Rollback(Operation):
     _name = 'Rollback'
@@ -338,15 +348,7 @@ class GetItemDetailsList(Operation):
         items = root.xpath(
             '/vco:GetItemDetailsListResponse/vco:ItemDetail',
             namespaces=NAMESPACES)
-
-        res = []
-        for item in items:
-            product = Product(item)
-            # return only products without replacement
-            if product.replacement is None:
-                res.append(product)
-
-        return res
+        return self._format_items(items)
 
 
 class CreateTextSearch(Operation):
@@ -401,6 +403,39 @@ class SearchResult(Operation):
         items = root.xpath('//cac:SellersItemIdentification/cac:ID',
                            namespaces=NAMESPACES)
         return [i.text for i in items]
+
+
+class SearchReadResult(Operation):
+    _name = 'TextSearch'
+
+    def get_url_args(self):
+        return [
+            ('RequestName', 'SearchResultRequest'),
+            ('TransactionID', self._tan),
+            ('StartIndex', self._offset),
+            ('Count', self._limit),
+            ('ResultFormat', 'ITEM_DETAIL'),
+        ]
+
+    def get_xml(self):
+        res = SearchResultRequest()
+        res.extend(self._xml_auth + [
+            TransactionID(self._tan),
+            StartIndex(str(self._offset)),
+            Count(str(self._limit)),
+            ResultFormat('ITEM_DETAIL'),
+        ])
+        return res
+
+    def execute(self, tan, offset, limit):
+        self._offset = offset
+        self._limit = limit
+        self._tan = tan
+        root = self._ctx.dispatch_request(self)
+        items = root.xpath(
+            '/vcc:SearchResultResponse/vco:ItemDetail',
+            namespaces=NAMESPACES)
+        return self._format_items(items)
 
 
 class CreateOrder(Operation):
@@ -571,6 +606,20 @@ class Product(VeloModelMixin, ProductBase):
             return []
 
         sr = SearchResult(cls._ctx)
+        return sr.execute(ctsresp.tan, offset, limit)
+
+    @classmethod
+    def search_read(cls, keywords, offset=0, limit=20, count=False):
+        cts = CreateTextSearch(cls._ctx)
+        ctsresp = cts.execute(keywords)
+
+        if count:
+            return ctsresp.count
+
+        if ctsresp.count == 0:
+            return []
+
+        sr = SearchReadResult(cls._ctx)
         return sr.execute(ctsresp.tan, offset, limit)
 
     @classmethod
