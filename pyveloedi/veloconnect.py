@@ -606,6 +606,8 @@ class Product(VeloModelMixin, ProductBase):
             return []
 
         sr = SearchResult(cls._ctx)
+        if limit <= 0:
+            limit = ctsresp.count
         return sr.execute(ctsresp.tan, offset, limit)
 
     @classmethod
@@ -620,6 +622,8 @@ class Product(VeloModelMixin, ProductBase):
             return []
 
         sr = SearchReadResult(cls._ctx)
+        if limit <= 0:
+            limit = ctsresp.count
         return sr.execute(ctsresp.tan, offset, limit)
 
     @classmethod
