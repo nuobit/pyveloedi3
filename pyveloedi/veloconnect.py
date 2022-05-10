@@ -86,7 +86,13 @@ IsTest = VCT.IsTest
 #
 # Veloconnect Catalog
 #
-VCC = ElementMaker(namespace=VCC_NAMESPACE, nsmap=NAMESPACES)
+ALT_NAMESPACE = {
+    **NAMESPACES,
+    None: VCC_NAMESPACE
+}
+ALT_NAMESPACE.pop('vcc')
+
+VCC = ElementMaker(namespace=VCC_NAMESPACE, nsmap=ALT_NAMESPACE)
 CreateTextSearchRequest = VCC.CreateTextSearchRequest
 SearchString = VCC.SearchString
 SearchResultRequest = VCC.SearchResultRequest
