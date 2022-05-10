@@ -20,15 +20,14 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 # THE SOFTWARE.
 
-import copy
-import urllib2
 from lxml import etree
-import urllib
+import requests
 
 from .base import ProductBase, ContextBase, OrderBase, EDIException, Model
-import base
+from . import base
 
 BASKETNAME = 'warenkorb'
+
 
 class WinoraException(EDIException):
     def __init__(self, msg):
@@ -64,10 +63,11 @@ class Context(ContextBase):
 
     def execute(self, params):
         params = [('loginid', self._userid),
-                   ('password', self._passwd)] + params
+                  ('password', self._passwd),
+                  ] + params
         self.log('Args', str(params))
-        url = '%s?%s' % (self._url, urllib.urlencode(params))
-        return urllib2.urlopen(url).read()
+        resp = requests.get(self._url, params=params)
+        return resp.text.encode('utf-8')
 
     def check(self):
         vi = VersionInfo(self)
@@ -94,7 +94,8 @@ class VersionInfo(WinoraBase):
 class ItemDetails(WinoraBase):
     def get_url_args(self):
         return [('processtype', 'itemdetails'),
-                ('pagesize', 100)] + [('itemnumber', c) for c in self._codes]
+                ('pagesize', 100)
+                ] + [('itemnumber', c) for c in self._codes]
 
     def execute(self, codes):
         self._codes = codes
@@ -105,10 +106,12 @@ class ItemDetails(WinoraBase):
 
 class SearchProducts(WinoraBase):
     def get_url_args(self):
-        return [('processtype', 'searchcatalog'),
-                ('pagesize', self._limit),
-                ('page', self._page),
-                ('searchpattern', ' '.join(self._keywords).encode('utf-8') )]
+        return [
+            ('processtype', 'searchcatalog'),
+            ('pagesize', self._limit),
+            ('page', self._page),
+            ('searchpattern', ' '.join(self._keywords).encode('utf-8'))
+        ]
 
     def execute(self, keywords, offset, limit):
         self._keywords = keywords
@@ -154,7 +157,7 @@ class OrderBasket(WinoraBase):
     def execute(self):
         root = self._ctx.dispatch_request(self)
         res, = root.xpath('/root/ordernumber')
-        return unicode(res.text)
+        return res.text.encode('utf-8')
 
 
 class Product(ProductBase):
@@ -262,4 +265,3 @@ class Order(OrderBase):
     def finish(self):
         ob = OrderBasket(self._ctx)
         self._orderid = ob.execute()
-

@@ -24,7 +24,7 @@ import decimal
 from lxml import etree
 import re
 import sys
-import urllib2
+import requests
 
 
 class Field(object):
@@ -45,6 +45,7 @@ class Field(object):
 
 class Bool(Field):
     _neg = False
+
     def _convert(self, node):
         if 'equals' in self._kwargs:
             res = self._kwargs['equals'] == node.text
@@ -68,7 +69,7 @@ class String(Field):
 
     def _convert(self, node):
         if self._exp is None:
-            return unicode(node.text)
+            return node.text
         else:
             return self._exp.sub(self._sub, node.text)
 
@@ -81,12 +82,12 @@ class Integer(Field):
 class Decimal(Field):
     def _convert(self, node):
         return decimal.Decimal('%.2f' % decimal.Decimal(
-                node.text.replace(',', '.')))
+            node.text.replace(',', '.')))
 
 
 class URL(Field):
     def _convert(self, node):
-        return buffer(urllib2.urlopen(node.text).read())
+        return memoryview(requests.get(node.text))
 
 
 class One2Many(Field):
@@ -112,6 +113,7 @@ class Many2One(Field):
 
     def _convert(self, node):
         return self._kwargs['model'](node)
+
 
 class Attribute(Field):
     def _convert(self, node):
@@ -145,7 +147,6 @@ class Model(object):
         Class = type(cls.__name__, cls.__bases__, dict(cls.__dict__))
         Class._ctx = context
         return Class
-
 
     @classmethod
     def search(cls, keywords, offset=0, limit=20, count=False):
@@ -211,8 +212,8 @@ class ContextBase(object):
             cls = frame.f_locals.get('self', False)
             cls = cls.__class__.__name__ + '.' if cls else ''
 
-            print '[ @%s%s (%s) ]' % (cls, frame.f_code.co_name, info)
-            print msg + '\n'
+            print('[ @%s%s (%s) ]' % (cls, frame.f_code.co_name, info))
+            print(msg + '\n')
 
     def get(self, clsname):
         raise NotImplementedError()

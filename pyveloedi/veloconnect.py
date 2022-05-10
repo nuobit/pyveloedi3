@@ -19,16 +19,15 @@
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 # THE SOFTWARE.
+import urllib
 
 from lxml import etree
 from lxml.builder import ElementMaker
-import urllib
-import urllib2
+import requests
 import re
 
 from .base import ProductBase, ContextBase, EDIException, OrderBase, Model
-import base
-
+from . import base
 
 CAC_NAMESPACE = 'urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-1.0'
 CBC_NAMESPACE = 'urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-1.0'
@@ -134,6 +133,7 @@ ERR_CODES = {
     ERR_INTERNAL: 'Internal error.',
 }
 
+
 class VeloConnectException(EDIException):
     def __init__(self, code):
         self._code = code
@@ -184,7 +184,7 @@ class Context(ContextBase):
             else:
                 res = self.query_get(request.get_url_args())
 
-            self.log('XML response', res)
+            self.log('XML response', res.decode())
 
             # Sometimes some supplier return invalid XML.
             # Normally when requesting the data again it will be fine.
@@ -203,20 +203,22 @@ class Context(ContextBase):
         return root
 
     def query_get(self, params):
-        params += [('BuyersID', self._userid),
-                   ('Password', self._passwd),
-                   ('IsTest', self._istest),]
-
-        params = urllib.urlencode(params)
-        url = '%s?%s' % (self._url, params)
-        self.log('URL for GET request', url)
-        return urllib2.urlopen(url).read()
+        params += [
+            ('BuyersID', self._userid),
+            ('Password', self._passwd),
+            ('IsTest', self._istest),
+        ]
+        self.log('URL for GET request', '%s?%s' % (self._url, urllib.parse.urlencode(params)))
+        resp = requests.get(self._url, params=params)
+        encoding = resp.encoding or resp.apparent_encoding or 'utf-8'
+        return resp.text.encode(encoding)
 
     def query_post(self, data):
-        data = '<?xml version="1.0" encoding="utf-8"?>\n' + data
-        self.log('XML for POST request', data)
-        req = urllib2.Request(self._url, data, XML_POST_HEADER)
-        return urllib2.urlopen(req).read()
+        data = b'<?xml version="1.0" encoding="utf-8"?>\n' + data
+        self.log('XML for POST request', '%s\n%s' % (self._url, data.decode()))
+        resp = requests.post(self._url, data=data, headers=XML_POST_HEADER)
+        encoding = resp.encoding or resp.apparent_encoding or 'utf-8'
+        return resp.text.encode(encoding)
 
 
 class Operation(object):
@@ -225,7 +227,8 @@ class Operation(object):
 
         self._xml_auth = [
             BuyersID(self._ctx._userid),
-            Credential(Password(self._ctx._passwd)),]
+            Credential(Password(self._ctx._passwd)),
+        ]
         self._xml_istest = IsTest(str(int(self._ctx._istest)))
 
     def get_url_args(self):
@@ -244,8 +247,10 @@ class Rollback(Operation):
     _name = 'Rollback'
 
     def get_url_args(self):
-        return [('RequestName', 'RollbackRequest'),
-                ('TransactionID', self._tan),]
+        return [
+            ('RequestName', 'RollbackRequest'),
+            ('TransactionID', self._tan),
+        ]
 
     def get_xml(self):
         res = RollbackRequest()
@@ -265,8 +270,8 @@ class GetProfile(Operation):
         profile = self._ctx.query_get([('RequestName', 'GetProfileRequest')])
         root = etree.fromstring(profile)
         implements = root.xpath(
-                '/vcp:GetProfileResponse/vcp:VeloconnectProfile/vcp:Implements',
-                namespaces=NAMESPACES)
+            '/vcp:GetProfileResponse/vcp:VeloconnectProfile/vcp:Implements',
+            namespaces=NAMESPACES)
 
         find = lambda path: impl.find(path, namespaces=NAMESPACES)
         bindings = {}
@@ -300,10 +305,10 @@ class GetItemDetails(Operation):
 
     def get_xml(self):
         return GetItemDetailsRequest(
-                    BuyersID(self._ctx._userid),
-                    self._xml_cred,
-                    SellersItemIdentification(ID(self._code)),
-                )
+            BuyersID(self._ctx._userid),
+            self._xml_cred,
+            SellersItemIdentification(ID(self._code)),
+        )
 
     def execute(self, code):
         self._code = code
@@ -324,15 +329,15 @@ class GetItemDetailsList(Operation):
         req.extend(self._xml_auth)
         for code in self._codes:
             req.append(RequestEntry(SellersItemIdentification(
-                        ID(unicode(code)))))
+                ID(code))))
         return req
 
     def execute(self, codes):
         self._codes = codes
         root = self._ctx.dispatch_request(self)
         items = root.xpath(
-                '/vco:GetItemDetailsListResponse/vco:ItemDetail',
-                namespaces=NAMESPACES)
+            '/vco:GetItemDetailsListResponse/vco:ItemDetail',
+            namespaces=NAMESPACES)
 
         res = []
         for item in items:
@@ -348,8 +353,10 @@ class CreateTextSearch(Operation):
     _name = 'TextSearch'
 
     def get_url_args(self):
-        return [('RequestName', 'CreateTextSearchRequest'),
-                ('SearchString', self._keywords)]
+        return [
+            ('RequestName', 'CreateTextSearchRequest'),
+            ('SearchString', self._keywords),
+        ]
 
     def get_xml(self):
         res = CreateTextSearchRequest()
@@ -366,19 +373,22 @@ class SearchResult(Operation):
     _name = 'TextSearch'
 
     def get_url_args(self):
-        return [('RequestName', 'SearchResultRequest'),
-                ('TransactionID', self._tan),
-                ('StartIndex', self._offset),
-                ('Count', self._limit),
-                ('ResultFormat', 'ID_ONLY'),]
+        return [
+            ('RequestName', 'SearchResultRequest'),
+            ('TransactionID', self._tan),
+            ('StartIndex', self._offset),
+            ('Count', self._limit),
+            ('ResultFormat', 'ID_ONLY'),
+        ]
 
     def get_xml(self):
         res = SearchResultRequest()
         res.extend(self._xml_auth + [
-                TransactionID(self._tan),
-                StartIndex(unicode(self._offset)),
-                Count(unicode(self._limit)),
-                ResultFormat('ID_ONLY')])
+            TransactionID(self._tan),
+            StartIndex(str(self._offset)),
+            Count(str(self._limit)),
+            ResultFormat('ID_ONLY'),
+        ])
         return res
 
     def execute(self, tan, offset, limit):
@@ -399,7 +409,7 @@ class CreateOrder(Operation):
         args = [('RequestName', 'CreateOrderRequest')]
         for line in self._lines:
             product_id = line.find('cac:SellersItemIdentification/cac:ID',
-                    namespaces=NAMESPACES).text
+                                   namespaces=NAMESPACES).text
             quantity = line.find('cbc:Quantity', namespaces=NAMESPACES)
             args += [
                 ('Quantity.' + product_id, quantity.text),
@@ -455,8 +465,10 @@ class FinishOrder(Operation):
     _name = 'Order'
 
     def get_url_args(self):
-        return [('RequestName', 'FinishOrderRequest'),
-                ('TransactionID', self._tan),]
+        return [
+            ('RequestName', 'FinishOrderRequest'),
+            ('TransactionID', self._tan),
+        ]
 
     def get_xml(self):
         res = FinishOrderRequest()
@@ -484,7 +496,7 @@ class TransactionMixin(object):
         try:
             rbk = Rollback(self._ctx)
             rbk.execute(self.tan)
-        except VeloConnectException, e:
+        except VeloConnectException as e:
             if e.code != ERR_NOT_SUPPORTED:
                 raise
 
@@ -495,7 +507,7 @@ class TextSearchResponse(VeloModelMixin, TransactionMixin, Model):
 
 class Product(VeloModelMixin, ProductBase):
     _name_exp = re.compile(r'[\n\r]|&nbsp;')
-    _prefixes = ['cac:Item/']   # 'Works with ItemDetail and Item nodes.'
+    _prefixes = ['cac:Item/']  # 'Works with ItemDetail and Item nodes.'
 
     valid = ~base.Bool(
         'vco:ItemUnknown/cac:SellersItemIdentification/cac:ID', default=True)
@@ -506,14 +518,14 @@ class Product(VeloModelMixin, ProductBase):
     replacement = base.String(
         'vco:RequestReplacement/cac:ItemReplacement/cac:ID')
     description = base.String('cbc:Description',
-         subst=(r'&nbsp;', ' '))
+                              subst=(r'&nbsp;', ' '))
     list_price = base.Decimal(
         'cac:RecommendedRetailPrice/cbc:PriceAmount')
     cost_price = base.Decimal('cac:BasePrice/cbc:PriceAmount')
     unit_code = base.Attribute('cac:BasePrice/cbc:BaseQuantity',
-         attr='quantityUnitCode')
+                               attr='quantityUnitCode')
     manufacturer = base.String('cac:ManufacturersItemIdentification'
-        '/cac:IssuerParty/cac:PartyName/cbc:Name')
+                               '/cac:IssuerParty/cac:PartyName/cbc:Name')
     availability = base.String('vco:Availability/vco:Code')
     available_quantity = base.Decimal('vco:Availability/vco:AvailableQuantity')
 
@@ -544,7 +556,7 @@ class Product(VeloModelMixin, ProductBase):
         url = len(urls) and urls[0].text or None
         if url is None:
             return None
-        return buffer(urllib2.urlopen(url).read())
+        return memoryview(requests.get(url).content)
 
     @classmethod
     def search(cls, keywords, offset=0, limit=20, count=False):
@@ -576,7 +588,7 @@ class Line(VeloModelMixin, Model):
 
 class Order(VeloModelMixin, TransactionMixin, OrderBase):
     lines = base.One2Many('/vco:OrderResponse/vco:OrderResponseLine',
-        model=Line)
+                          model=Line)
     orderid = base.String('vco:OrderHeader/vco:OrderID')
 
     def _load(self, tan):
@@ -588,7 +600,7 @@ class Order(VeloModelMixin, TransactionMixin, OrderBase):
         rlines = []
         for product, qty in lines:
             line = OrderRequestLine(product.sellers_item_identification,
-                    Quantity(str(qty), quantityUnitCode=product.unit_code))
+                                    Quantity(str(qty), quantityUnitCode=product.unit_code))
             rlines.append(line)
         return rlines
 
