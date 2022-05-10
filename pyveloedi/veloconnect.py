@@ -343,12 +343,12 @@ class CreateTextSearch(Operation):
 
     def get_url_args(self):
         return [('RequestName', 'CreateTextSearchRequest'),
-                ('SearchString', ' '.join(self._keywords).encode('utf8'))]
+                ('SearchString', self._keywords)]
 
     def get_xml(self):
         res = CreateTextSearchRequest()
         res.extend(self._xml_auth)
-        res.append(SearchString(' '.join(self._keywords)))
+        res.append(SearchString(self._keywords))
         return res
 
     def execute(self, keywords):
