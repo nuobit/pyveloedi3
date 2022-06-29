@@ -143,8 +143,9 @@ class VeloConnectException(EDIException):
 class Context(ContextBase):
     MAX_FETCH_TRIES = 3
 
-    def __init__(self, url, userid, passwd, istest=False, log=False):
+    def __init__(self, url, userid, passwd, istest=False, log=False, use_objects=True):
         self._istest = istest
+        self._use_objects = use_objects
         super(Context, self).__init__(url, userid, passwd, log)
         self._bindings = None
 
@@ -348,6 +349,8 @@ class GetItemDetailsList(Operation):
         items = root.xpath(
             '/vco:GetItemDetailsListResponse/vco:ItemDetail',
             namespaces=NAMESPACES)
+        if not self._ctx._use_objects:
+            return items
         return self._format_items(items)
 
 
@@ -435,6 +438,8 @@ class SearchReadResult(Operation):
         items = root.xpath(
             '/vcc:SearchResultResponse/vco:ItemDetail',
             namespaces=NAMESPACES)
+        if not self._ctx._use_objects:
+            return items
         return self._format_items(items)
 
 
