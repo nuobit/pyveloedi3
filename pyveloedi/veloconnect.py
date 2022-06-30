@@ -147,13 +147,13 @@ class Context(ContextBase):
         self._istest = istest
         self._use_objects = use_objects
         super(Context, self).__init__(url, userid, passwd, log)
-        self._bindings = None
+        self._params = None
 
-    def _load_bindings(self):
-        if self._bindings is not None:
+    def _load_params(self):
+        if self._params is not None:
             return
         gp = GetProfile(context=self)
-        self._bindings = gp.get_bindings()
+        self._params = gp.get_params()
 
     def check(self):
         # Simply pulling the bindings does often work even if the
@@ -166,7 +166,7 @@ class Context(ContextBase):
         return True
 
     def get(self, clsname):
-        self._load_bindings()
+        self._load_params()
         if clsname == 'Product':
             return Product.copy(self)
         elif clsname == 'Order':
@@ -174,16 +174,17 @@ class Context(ContextBase):
         return None
 
     def dispatch_request(self, request):
-        if request._name not in self._bindings:
+        if request._name not in self._params:
             raise VeloConnectException(ERR_NOT_SUPPORTED)
 
         ntry = 0
         while ntry < self.MAX_FETCH_TRIES:
-            if self._bindings[request._name] == 'XML-POST':
+            binding, uri = self._params[request._name]
+            if binding == 'XML-POST':
                 xml = etree.tostring(request.get_xml(), pretty_print=True)
-                res = self.query_post(xml)
+                res = self.query_post(uri, xml)
             else:
-                res = self.query_get(request.get_url_args())
+                res = self.query_get(uri, request.get_url_args())
 
             self.log('XML response', res.decode())
 
@@ -203,21 +204,21 @@ class Context(ContextBase):
 
         return root
 
-    def query_get(self, params):
+    def query_get(self, uri, params):
         params += [
             ('BuyersID', self._userid),
             ('Password', self._passwd),
             ('IsTest', self._istest),
         ]
-        self.log('URL for GET request', '%s?%s' % (self._url, urllib.parse.urlencode(params)))
-        resp = requests.get(self._url, params=params)
+        self.log('URL for GET request', '%s?%s' % (uri, urllib.parse.urlencode(params)))
+        resp = requests.get(uri, params=params)
         encoding = resp.encoding or resp.apparent_encoding or 'utf-8'
         return resp.text.encode(encoding)
 
-    def query_post(self, data):
+    def query_post(self, uri, data):
         data = b'<?xml version="1.0" encoding="utf-8"?>\n' + data
-        self.log('XML for POST request', '%s\n%s' % (self._url, data.decode()))
-        resp = requests.post(self._url, data=data, headers=XML_POST_HEADER)
+        self.log('XML for POST request', '%s\n%s' % (uri, data.decode()))
+        resp = requests.post(uri, data=data, headers=XML_POST_HEADER)
         encoding = resp.encoding or resp.apparent_encoding or 'utf-8'
         return resp.text.encode(encoding)
 
@@ -277,8 +278,8 @@ class Rollback(Operation):
 class GetProfile(Operation):
     _name = 'GetProfile'
 
-    def get_bindings(self):
-        profile = self._ctx.query_get([('RequestName', 'GetProfileRequest')])
+    def get_params(self):
+        profile = self._ctx.query_get(self._ctx._url, [('RequestName', 'GetProfileRequest')])
         root = etree.fromstring(profile)
         implements = root.xpath(
             '/vcp:GetProfileResponse/vcp:VeloconnectProfile/vcp:Implements',
@@ -288,15 +289,17 @@ class GetProfile(Operation):
         bindings = {}
         for impl in implements:
             binding = find('vcp:Binding')
+            uri = find('vcp:URI')
+            uri_text = uri is not None and uri.text or self._ctx._url
             op = find('vcp:Transaction')
             if op is None:
                 op = find('vcp:Operation')
 
             # Overwrite URL bindings in favor of XML-POST
             if binding.text in ('XML-POST', 'XML-POST-S'):
-                bindings[op.text] = 'XML-POST'
+                bindings[op.text] = ('XML-POST', uri_text)
             elif op.text not in bindings:
-                bindings[op.text] = binding.text
+                bindings[op.text] = (binding.text, uri_text)
 
         return bindings
 
