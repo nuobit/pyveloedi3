@@ -117,6 +117,8 @@ ERR_CANT_CREATE_TRANSACTION = 421
 ERR_ILLEGAL_OP = 430
 ERR_ILLEGAL_ISTEST = 435
 ERR_INTERNAL = 500
+ERR_INVALID_MAX_TRIES = 513
+ERR_MAX_TRIES_REACHED = 514
 
 ERR_CODES = {
     ERR_ANY: 'General error.',
@@ -131,6 +133,8 @@ ERR_CODES = {
     ERR_ILLEGAL_OP: 'Operation not possible in current transaction state.',
     ERR_ILLEGAL_ISTEST: 'IsTest not allowed in current transaction state.',
     ERR_INTERNAL: 'Internal error.',
+    ERR_INVALID_MAX_TRIES: 'Max tries values should be greater than 0.',
+    ERR_MAX_TRIES_REACHED: 'Max tries reached.',
 }
 
 
@@ -176,7 +180,8 @@ class Context(ContextBase):
     def dispatch_request(self, request):
         if request._name not in self._params:
             raise VeloConnectException(ERR_NOT_SUPPORTED)
-
+        if self.MAX_FETCH_TRIES <= 0:
+            raise VeloConnectException(ERR_INVALID_MAX_TRIES)
         ntry = 0
         while ntry < self.MAX_FETCH_TRIES:
             binding, uri = self._params[request._name]
@@ -196,7 +201,8 @@ class Context(ContextBase):
             except etree.XMLSyntaxError:
                 self.log('XMLSyntaxError', 'Will fetch xml again.')
                 ntry += 1
-
+        if ntry == self.MAX_FETCH_TRIES:
+            raise VeloConnectException(ERR_MAX_TRIES_REACHED)
         rcode, = root.xpath('//vct:ResponseCode', namespaces=NAMESPACES)
         err = int(rcode.text)
         if err != ERR_NONE:
