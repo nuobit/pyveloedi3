@@ -570,6 +570,7 @@ class Product(VeloModelMixin, ProductBase):
                                attr='quantityUnitCode')
     manufacturer = base.String('cac:ManufacturersItemIdentification'
                                '/cac:IssuerParty/cac:PartyName/cbc:Name')
+    manufacturer_id = base.String('cac:Item/cac:ManufacturersItemIdentification/cac:ID')
     availability = base.String('vco:Availability/vco:Code')
     available_quantity = base.Decimal('vco:Availability/vco:AvailableQuantity')
 
