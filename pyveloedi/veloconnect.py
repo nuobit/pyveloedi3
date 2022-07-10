@@ -119,6 +119,8 @@ ERR_ILLEGAL_ISTEST = 435
 ERR_INTERNAL = 500
 ERR_INVALID_MAX_TRIES = 513
 ERR_MAX_TRIES_REACHED = 514
+ERR_MULTIPLE_ELEMENT_FOUND = 460
+ERR_ELEMENT_NOT_FOUND = 461
 
 ERR_CODES = {
     ERR_ANY: 'General error.',
@@ -135,6 +137,8 @@ ERR_CODES = {
     ERR_INTERNAL: 'Internal error.',
     ERR_INVALID_MAX_TRIES: 'Max tries values should be greater than 0.',
     ERR_MAX_TRIES_REACHED: 'Max tries reached.',
+    ERR_MULTIPLE_ELEMENT_FOUND: 'More than one elements found.',
+    ERR_ELEMENT_NOT_FOUND: 'Element not found'
 }
 
 
@@ -250,14 +254,17 @@ class Operation(object):
     def execute(self):
         self._ctx.dispatch_request(self)
 
+    def _format_item(self, item):
+        product = Product(item)
+        # return only products without replacement
+        return not product.replacement and product or None
+
     def _format_items(self, items):
         res = []
         for item in items:
-            product = Product(item)
-            # return only products without replacement
-            if product.replacement is None:
+            product = self._format_item(item)
+            if product:
                 res.append(product)
-
         return res
 
 
@@ -323,16 +330,31 @@ class GetClassificationScheme(Operation):
 class GetItemDetails(Operation):
     _name = 'GetItemDetails'
 
+    def get_url_args(self):
+        return [
+            ('RequestName', 'GetItemDetailsRequest'),
+            ('SellersItemIdentification', self._code)]
+
     def get_xml(self):
-        return GetItemDetailsRequest(
-            BuyersID(self._ctx._userid),
-            self._xml_cred,
-            SellersItemIdentification(ID(self._code)),
-        )
+        req = GetItemDetailsRequest()
+        req.extend(self._xml_auth)
+        req.append(SellersItemIdentification(
+            ID(self._code)))
+        return req
 
     def execute(self, code):
         self._code = code
-        return Product(self._ctx.dispatch_request(self))
+        root = self._ctx.dispatch_request(self)
+        item = root.xpath(
+            '/vco:GetItemDetailsResponse',
+            namespaces=NAMESPACES)
+        if len(item) > 1:
+            raise VeloConnectException(ERR_MULTIPLE_ELEMENT_FOUND)
+        elif not item:
+            raise VeloConnectException(ERR_ELEMENT_NOT_FOUND)
+        if not self._ctx._use_objects:
+            return item[0]
+        return self._format_item(item[0])
 
 
 class GetItemDetailsList(Operation):
