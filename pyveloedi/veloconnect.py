@@ -207,7 +207,7 @@ class Context(ContextBase):
                 ntry += 1
         if ntry == self.MAX_FETCH_TRIES:
             raise VeloConnectException(ERR_MAX_TRIES_REACHED)
-        rcode = root.xpath('//vct:ResponseCode', namespaces=NAMESPACES)
+        rcode, = root.xpath('//vct:ResponseCode', namespaces=NAMESPACES)
         err = int(rcode.text)
         if err != ERR_NONE:
             raise VeloConnectException(err)
